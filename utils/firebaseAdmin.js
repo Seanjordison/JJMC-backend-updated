@@ -1,51 +1,91 @@
 // utils/firebaseAdmin.js
 // Initializes the Firebase Admin SDK once and exports the db + auth.
 
+const fs = require("fs");
+const path = require("path");
 const admin = require("firebase-admin");
 
-let _initialized = false;
+let initialized = false;
+let firebaseAdminConfig = {
+  projectId: null,
+  serviceAccountProjectId: null,
+  serviceAccountSource: null,
+  projectMismatch: false,
+  configurationError: null,
+};
+
+const DEFAULT_FIREBASE_PROJECT_ID = "database-test-34eff";
+
+function loadServiceAccountFromPath(filePath) {
+  const resolvedPath = path.resolve(filePath);
+  return require(resolvedPath);
+}
 
 function initAdmin() {
-  if (_initialized) return;
+  if (initialized) return;
 
-  // ── Option A: service account JSON file ──────────────────────────────
+  let serviceAccount = null;
+  let serviceAccountSource = null;
+  let projectId = process.env.FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_PROJECT_ID;
+
   if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
-    const serviceAccount = require(
-      require("path").resolve(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
+    serviceAccount = loadServiceAccountFromPath(
+      process.env.FIREBASE_SERVICE_ACCOUNT_PATH
     );
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      projectId: process.env.FIREBASE_PROJECT_ID,
-    });
-
-  // ── Option B: base64-encoded service account (for cloud deploy) ──────
+    serviceAccountSource = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   } else if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
     const json = Buffer.from(
       process.env.FIREBASE_SERVICE_ACCOUNT_BASE64,
       "base64"
     ).toString("utf8");
-    const serviceAccount = JSON.parse(json);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      projectId: process.env.FIREBASE_PROJECT_ID,
-    });
-
-  // ── Option C: Application Default Credentials (GCP / Cloud Run) ──────
-  } else {
-    admin.initializeApp({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-    });
+    serviceAccount = JSON.parse(json);
+    serviceAccountSource = "FIREBASE_SERVICE_ACCOUNT_BASE64";
+  } else if (fs.existsSync(path.resolve("serviceAccountKey.json"))) {
+    serviceAccount = loadServiceAccountFromPath("serviceAccountKey.json");
+    serviceAccountSource = "serviceAccountKey.json";
   }
 
-  _initialized = true;
-  console.log(
-    `[Firebase] Admin SDK initialized — project: ${process.env.FIREBASE_PROJECT_ID}`
-  );
+  const serviceAccountProjectId = serviceAccount?.project_id || null;
+  projectId = projectId || serviceAccountProjectId;
+  const projectMismatch =
+    Boolean(projectId && serviceAccountProjectId && projectId !== serviceAccountProjectId);
+  const configurationError = projectMismatch
+    ? `Firebase Admin service account project "${serviceAccountProjectId}" does not match backend project "${projectId}". Replace serviceAccountKey.json with a key from "${projectId}".`
+    : null;
+
+  if (serviceAccount) {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      projectId,
+    });
+  } else {
+    admin.initializeApp({ projectId });
+  }
+
+  initialized = true;
+
+  firebaseAdminConfig = {
+    projectId,
+    serviceAccountProjectId,
+    serviceAccountSource,
+    projectMismatch,
+    configurationError,
+  };
+
+  if (projectMismatch) {
+    console.warn(`[Firebase] ${configurationError}`);
+  }
+
+  console.log(`[Firebase] Admin SDK initialized - project: ${projectId || "not set"}`);
 }
 
 initAdmin();
 
-const db   = admin.firestore();
+const db = admin.firestore();
 const auth = admin.auth();
 
-module.exports = { admin, db, auth };
+function getFirebaseAdminConfig() {
+  return { ...firebaseAdminConfig };
+}
+
+module.exports = { admin, db, auth, getFirebaseAdminConfig };
