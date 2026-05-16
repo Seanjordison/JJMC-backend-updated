@@ -47,24 +47,15 @@ Prerequisites
 | A Firebase project | (same one as the frontend) |
 | Firebase service account key | (downloaded from Firebase Console) |
 
----
 
- Getting Started
 
- 1. Clone the repository
-
-```bash
-git clone https://github.com/YOUR_ORG/jjmc-payroll-backend.git
-cd jjmc-payroll-backend
-```
-
-### 2. Install dependencies
+ 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Download the Firebase Service Account key
+ 2. Download the Firebase Service Account key
 
 1. Go to [Firebase Console](https://console.firebase.google.com) → your project
 2. Project Settings → Service Accounts → **Generate new private key**
@@ -72,7 +63,7 @@ npm install
 
 > ⚠️ **Never commit `serviceAccountKey.json` to Git.** It is in `.gitignore`.
 
-### 4. Create the `.env` file
+ 4. Create the `.env` file
 
 ```bash
 cp .env.example .env
