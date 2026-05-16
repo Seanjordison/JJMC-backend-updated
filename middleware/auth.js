@@ -2,7 +2,7 @@
 // Verifies the Firebase ID token in the Authorization header.
 // Attaches req.user = { uid, email, role } on success.
 
-const { auth, db } = require("../utils/firebaseAdmin");
+const { auth, db, getFirebaseAdminConfig } = require("../utils/firebaseAdmin");
 
 const VALID_ROLES = ["admin", "bookkeeper", "client-staff"];
 
@@ -20,9 +20,25 @@ async function verifyToken(req, res, next) {
     });
   }
 
-  const token = header.split(" ")[1];
+  const token = header.slice("Bearer ".length).trim();
 
   try {
+    const firebaseConfig = getFirebaseAdminConfig();
+    if (firebaseConfig.configurationError) {
+      console.error("[auth] Firebase Admin configuration error:", firebaseConfig);
+      return res.status(503).json({
+        error: "Firebase Admin configuration error.",
+        message: firebaseConfig.configurationError,
+      });
+    }
+
+    if (!token) {
+      return res.status(401).json({
+        error: "Unauthorized",
+        message: "Missing Firebase ID token after Bearer.",
+      });
+    }
+
     const decoded = await auth.verifyIdToken(token);
 
     // Load role from Firestore (source of truth in this project)
@@ -46,7 +62,16 @@ async function verifyToken(req, res, next) {
 
     next();
   } catch (err) {
-    console.error("[auth] Token verification failed:", err.code || err.message);
+    const tokenParts = typeof token === "string" ? token.split(".").length : 0;
+    const firebaseConfig = getFirebaseAdminConfig();
+    console.error("[auth] Token verification failed:", err.code || err.message, {
+      tokenLength: typeof token === "string" ? token.length : 0,
+      tokenParts,
+      projectId: firebaseConfig.projectId || "not set",
+      serviceAccountProjectId: firebaseConfig.serviceAccountProjectId || "not set",
+      serviceAccountSource: firebaseConfig.serviceAccountSource || "not set",
+      projectMismatch: firebaseConfig.projectMismatch,
+    });
     return res.status(401).json({
       error: "Unauthorized",
       message: "Invalid or expired token.",
