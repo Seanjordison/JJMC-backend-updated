@@ -45,6 +45,92 @@ router.get("/bookkeepers", verifyToken, requireRole("admin"), async (req, res) =
   }
 });
 
+// POST /api/users/bookkeepers
+// Create a Firebase Auth user and Firestore profile for a bookkeeper.
+// Bookkeeper accounts are admin-created only; they are not public signups.
+router.post("/bookkeepers", verifyToken, requireRole("admin"), async (req, res) => {
+  const {
+    email,
+    password,
+    firstName,
+    lastName,
+    phoneNumber,
+    department,
+    position,
+  } = req.body || {};
+
+  if (!email || !password || !firstName || !lastName) {
+    return res.status(400).json({
+      error: "Email, password, first name, and last name are required.",
+    });
+  }
+
+  if (String(password).length < 6) {
+    return res.status(400).json({
+      error: "Password must be at least 6 characters.",
+    });
+  }
+
+  let createdUser = null;
+
+  try {
+    createdUser = await admin.auth().createUser({
+      email,
+      password,
+      displayName: `${firstName} ${lastName}`.trim(),
+      disabled: false,
+    });
+
+    await admin.auth().setCustomUserClaims(createdUser.uid, {
+      role: "bookkeeper",
+    });
+
+    const bookkeeper = {
+      email,
+      role: "bookkeeper",
+      accountType: "bookkeeper",
+      createdBy: req.user.uid,
+      firstName,
+      lastName,
+      phoneNumber: phoneNumber || "",
+      department: department || "Accounting",
+      position: position || "Bookkeeper",
+      disabled: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await db.collection("users").doc(createdUser.uid).set(bookkeeper, {
+      merge: true,
+    });
+
+    return res.status(201).json({
+      message: "Bookkeeper account created.",
+      bookkeeper: {
+        id: createdUser.uid,
+        ...bookkeeper,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    if (createdUser?.uid) {
+      await admin.auth().deleteUser(createdUser.uid).catch(() => {});
+    }
+
+    if (err.code === "auth/email-already-exists") {
+      return res.status(409).json({
+        error: "This email is already registered.",
+      });
+    }
+
+    console.error("[POST /users/bookkeepers]", err);
+    return res.status(500).json({
+      error: err.message || "Unable to create bookkeeper account.",
+    });
+  }
+});
+
 // ─────────────────────────────────────────────────────────
 // GET /api/users/me
 // Get the calling user's own profile.
