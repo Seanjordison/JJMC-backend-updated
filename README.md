@@ -65,9 +65,7 @@ npm install
 
  4. Create the `.env` file
 
-```bash
-cp .env.example .env
-```
+(Right Click-New Text Document-Copy and Paste the content in the EXAMPLE file into the new text doc- save as and type .env)
 
 Edit `.env` and fill in your values (see [Environment Variables](#environment-variables)).
 
