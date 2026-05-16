@@ -2,6 +2,31 @@ JJMC Payroll Backend
 
 A standalone Node.js / Express REST API backend for the JJMC Payroll and Tax Return System.  
 
+# Updated files:
+# .env.example
+- Added local development CORS support, including 127.0.0.1:5173.
+- Documents Firebase Admin and allowed origin setup for local backend use.
+
+# middleware/auth.js
+- Improved Bearer token parsing.
+- Added handling for empty Firebase ID tokens.
+- Added clearer Firebase Admin diagnostics for token and configuration errors.
+- Checks Firebase Admin configuration before attempting Firestore role lookup.
+
+# routes/users.js
+- Added POST /api/users/bookkeepers.
+- Allows admins to create bookkeeper Firebase Auth accounts from the backend.
+- Creates matching Firestore user profiles for bookkeepers.
+- Handles duplicate email errors.
+- Cleans up the created Auth account if Firestore profile creation fails.
+
+# utils/firebaseAdmin.js
+- Improved Firebase Admin SDK initialization.
+- Supports service account path, base64 service account, and local serviceAccountKey.json.
+- Added default Firebase project ID.
+- Detects when the service account belongs to a different Firebase project.
+- Exports Firebase Admin diagnostics for auth middleware.
+
 ---
 
 Table of Contents
