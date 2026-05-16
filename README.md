@@ -1,11 +1,10 @@
-# JJMC Payroll Backend
+JJMC Payroll Backend
 
-A standalone **Node.js / Express** REST API backend for the **JJMC Payroll and Tax Return System**.  
-It connects to the same Firebase project the frontend already uses — without touching or replacing any existing `firebase_functions` files.
+A standalone Node.js / Express REST API backend for the JJMC Payroll and Tax Return System.  
 
 ---
 
-## Table of Contents
+Table of Contents
 
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
@@ -21,7 +20,7 @@ It connects to the same Firebase project the frontend already uses — without t
 
 ---
 
-## Architecture
+ Architecture
 
 ```
 Frontend (React/Ionic)
@@ -39,7 +38,7 @@ The backend uses **Firebase Admin SDK** to read and write Firestore data with fu
 
 ---
 
-## Prerequisites
+Prerequisites
 
 | Tool | Version |
 |------|---------|
@@ -50,9 +49,9 @@ The backend uses **Firebase Admin SDK** to read and write Firestore data with fu
 
 ---
 
-## Getting Started
+ Getting Started
 
-### 1. Clone the repository
+ 1. Clone the repository
 
 ```bash
 git clone https://github.com/YOUR_ORG/jjmc-payroll-backend.git
@@ -151,10 +150,24 @@ Obtain the token from the Firebase Auth SDK (`user.getIdToken()`).
 | GET | `/api/users` | admin | List all users |
 | GET | `/api/users/me` | any | Get own profile |
 | GET | `/api/users/bookkeepers` | admin | List bookkeepers |
+| POST | `/api/users/bookkeepers` | admin | Create a bookkeeper Firebase Auth account and profile |
 | GET | `/api/users/:uid` | admin / self | Get user profile |
 | PUT | `/api/users/:uid` | admin / self | Update profile fields |
 | POST | `/api/users/:uid/role` | admin | Set role (`admin`, `bookkeeper`, `client-staff`) |
 | DELETE | `/api/users/:uid` | admin | Disable user (soft delete) |
+
+**Create bookkeeper body:**
+```json
+{
+  "email": "bookkeeper@example.com",
+  "password": "temporary-password",
+  "firstName": "Juan",
+  "lastName": "Dela Cruz",
+  "phoneNumber": "optional",
+  "department": "Accounting",
+  "position": "Bookkeeper"
+}
+```
 
 ---
 
