@@ -7,6 +7,21 @@ const { requireRole }  = require("../middleware/roleGuard");
 
 const VALID_ROLES = ["admin", "bookkeeper", "client-staff"];
 
+const normalizeRole = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+
+const parseDisabled = (value) => {
+  if (typeof value === "boolean") return value;
+  return ["disabled", "true", "1", "yes"].includes(
+    String(value || "").trim().toLowerCase()
+  );
+};
+
+const trimString = (value) => (typeof value === "string" ? value.trim() : value);
+
 // ─────────────────────────────────────────────────────────
 // GET /api/users
 // List all users (admin only).
@@ -186,13 +201,6 @@ router.put("/:uid", verifyToken, async (req, res) => {
     return res.status(403).json({ error: "Forbidden." });
   }
 
-  // Strip fields that must not be updated via this endpoint
-  const { role, createdAt, ...safeFields } = req.body;
-
-  if (Object.keys(safeFields).length === 0) {
-    return res.status(400).json({ error: "No valid fields provided to update." });
-  }
-
   try {
     const ref  = db.collection("users").doc(uid);
     const snap = await ref.get();
@@ -200,8 +208,100 @@ router.put("/:uid", verifyToken, async (req, res) => {
       return res.status(404).json({ error: "User not found." });
     }
 
+    const isAdmin = req.user.role === "admin";
+    const {
+      id,
+      uid: bodyUid,
+      createdAt,
+      updatedAt,
+      password,
+      role,
+      disabled,
+      status,
+      ...profileFields
+    } = req.body || {};
+
+    void id;
+    void bodyUid;
+    void createdAt;
+    void updatedAt;
+    void status;
+
+    if (role !== undefined) {
+      return res.status(400).json({ error: "Role changes are disabled on this endpoint." });
+    }
+
+    if (!isAdmin && (
+      password !== undefined ||
+      role !== undefined ||
+      disabled !== undefined ||
+      profileFields.email !== undefined
+    )) {
+      return res.status(403).json({ error: "Only admins can update credentials, role, or status." });
+    }
+
+    const existing = snap.data();
+    const firestoreUpdates = {};
+
+    Object.entries(profileFields).forEach(([key, value]) => {
+      firestoreUpdates[key] = trimString(value);
+    });
+
+    if (disabled !== undefined) {
+      firestoreUpdates.disabled = parseDisabled(disabled);
+    }
+
+    const targetIsAdmin = existing.role === "admin";
+    const adminCredentialFields = [
+      firestoreUpdates.email !== undefined,
+      password !== undefined,
+      disabled !== undefined,
+    ].some(Boolean);
+
+    if (targetIsAdmin && adminCredentialFields) {
+      return res.status(400).json({
+        error: "Admin credentials and status cannot be edited from Manage Accounts.",
+      });
+    }
+
+    if (Object.keys(firestoreUpdates).length === 0 && password === undefined) {
+      return res.status(400).json({ error: "No valid fields provided to update." });
+    }
+
+    const authUpdates = {};
+    if (firestoreUpdates.email !== undefined) {
+      if (!firestoreUpdates.email) {
+        return res.status(400).json({ error: "Email is required." });
+      }
+      authUpdates.email = firestoreUpdates.email;
+    }
+
+    if (password !== undefined && String(password).trim()) {
+      if (String(password).length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters." });
+      }
+      authUpdates.password = String(password);
+    }
+
+    if (firestoreUpdates.disabled !== undefined) {
+      authUpdates.disabled = firestoreUpdates.disabled;
+    }
+
+    const displayName = [
+      firestoreUpdates.firstName ?? existing.firstName,
+      firestoreUpdates.lastName ?? existing.lastName,
+    ].filter(Boolean).join(" ").trim() || firestoreUpdates.name;
+
+    if (displayName) {
+      authUpdates.displayName = displayName;
+    }
+
+    if (Object.keys(authUpdates).length > 0) {
+      await admin.auth().updateUser(uid, authUpdates);
+    }
+
     await ref.update({
-      ...safeFields,
+      ...firestoreUpdates,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -218,7 +318,7 @@ router.put("/:uid", verifyToken, async (req, res) => {
 // ─────────────────────────────────────────────────────────
 router.post("/:uid/role", verifyToken, requireRole("admin"), async (req, res) => {
   const { uid } = req.params;
-  const { role } = req.body;
+  const role = normalizeRole(req.body?.role);
 
   if (!role || !VALID_ROLES.includes(role)) {
     return res.status(400).json({
@@ -237,6 +337,7 @@ router.post("/:uid/role", verifyToken, requireRole("admin"), async (req, res) =>
       role,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    await admin.auth().setCustomUserClaims(uid, { role });
 
     return res.json({ message: `Role "${role}" assigned to user ${uid}.` });
   } catch (err) {
@@ -258,12 +359,47 @@ router.delete("/:uid", verifyToken, requireRole("admin"), async (req, res) => {
       return res.status(404).json({ error: "User not found." });
     }
 
-    await ref.update({
-      disabled: true,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    if (snap.data()?.role === "admin") {
+      return res.status(400).json({ error: "Admin accounts cannot be removed from Manage Accounts." });
+    }
+
+    const batch = db.batch();
+
+    const clientStaffSnap = await db
+      .collection("clientCompanies")
+      .where("userIds", "array-contains", uid)
+      .get();
+
+    clientStaffSnap.docs.forEach((clientDoc) => {
+      batch.update(clientDoc.ref, {
+        userIds: admin.firestore.FieldValue.arrayRemove(uid),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     });
 
-    return res.json({ message: `User ${uid} disabled.` });
+    const bookkeeperSnap = await db
+      .collection("clientCompanies")
+      .where("bookkeeperId", "==", uid)
+      .get();
+
+    bookkeeperSnap.docs.forEach((clientDoc) => {
+      batch.update(clientDoc.ref, {
+        bookkeeperId: null,
+        bookkeeperName: null,
+        status: "Awaiting Assignment",
+        assignedAt: null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    batch.delete(ref);
+    await batch.commit();
+
+    await admin.auth().deleteUser(uid).catch((authErr) => {
+      if (authErr.code !== "auth/user-not-found") throw authErr;
+    });
+
+    return res.json({ message: `User ${uid} removed.` });
   } catch (err) {
     console.error("[DELETE /users/:uid]", err);
     return res.status(500).json({ error: "Internal server error." });
