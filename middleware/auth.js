@@ -47,6 +47,12 @@ async function verifyToken(req, res, next) {
       const snap = await db.collection("users").doc(decoded.uid).get();
       if (snap.exists) {
         const data = snap.data();
+        if (data?.disabled === true) {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: "This account is disabled.",
+          });
+        }
         const firestoreRole = data?.role?.toLowerCase();
         if (VALID_ROLES.includes(firestoreRole)) role = firestoreRole;
       }
